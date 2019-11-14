@@ -30,15 +30,16 @@ if __name__ == '__main__':
     X,Y = load_iris(return_X_y=True)
 
     for i,x in enumerate(X):
-        torch.save(torch.tensor(x), './data/%d.pt' %i)
+        torch.save(torch.tensor(x).float(), './data/%d.pt' %i)
 
-    n_classes=len(set(Y))
+    n_classes=len(set(Y)) # torch.tensor(len(set(Y))).int()
+    print(f'Number of classes: {n_classes}')
 
     partition = {'train':[str(x) for x in range(0,100)],
                  'val':[str(x) for x in range(100,125)],
                  'test':[str(x) for x in range(125,150)]}
 
-    labels = {str(i):j for i,j in zip(range(150), Y)}
+    labels = {str(i):torch.tensor(j).to(torch.int64) for i,j in zip(range(150), Y)}
 
     class Dataset(data.Dataset):
       'Characterizes a dataset for PyTorch'
@@ -54,6 +55,7 @@ if __name__ == '__main__':
       def __getitem__(self, index):
             'Generates one sample of data'
             # Select sample
+
             ID = self.list_IDs[index]
 
             # Load data and get label
@@ -81,30 +83,36 @@ if __name__ == '__main__':
     test_set = Dataset(partition['test'], labels)
     test_generator = data.DataLoader(test_set, **params)
 
+    DROP_OUT_PROP = 0.1
+
     class FCN(nn.Module):
         def __init__(self, n_classes=n_classes):
             super(FCN, self).__init__()
-            self.fc = nn.Sequential(nn.Dropout(p=0.2),
-                                    nn.Linear(4, 20),
-                                    nn.Dropout(p=0.9),
-                                    nn.LeakyReLU(),
-                                    nn.Linear(20,50),
-                                    nn.Dropout(p=0.9),
-                                    nn.LeakyReLU(),
+            self.fc = nn.Sequential(nn.BatchNorm1d(num_features=4),
+                                    nn.Dropout(p=DROP_OUT_PROP),
+                                    nn.Linear(4, 50),
+                                    nn.BatchNorm1d(num_features=50),
+                                    nn.Dropout(p=DROP_OUT_PROP),
+                                    nn.ReLU(),
                                     nn.Linear(50, 20),
-                                    nn.Dropout(p=0.9),
-                                    nn.LeakyReLU(),
+                                    nn.BatchNorm1d(num_features=20),
+                                    nn.Dropout(p=DROP_OUT_PROP),
+                                    nn.ReLU(),
                                     nn.Linear(20, n_classes),
-                                    nn.LogSoftmax(dim=-1))
+                                    nn.Softmax(dim=-1))
 
         def forward(self, inp):
             return self.fc(inp)
 
     FC_NN = FCN()
 
+    LEARNING_WEIGHT = 1e-3
 
-    optim = SGD(FC_NN.parameters(recurse=True), lr=0.1, momentum=0.95)
-    epochs = 100
+    optim = torch.optim.AdamW(FC_NN.parameters(recurse=True), lr=LEARNING_WEIGHT, weight_decay=0.001, amsgrad=True)#SGD(FC_NN.parameters(recurse=True), lr=0.1, momentum=0.95)
+    epochs = 500
+
+    train_acc = []
+    test_acc = []
 
     FC_NN = FC_NN.float()
     for i in range(epochs):
@@ -112,14 +120,15 @@ if __name__ == '__main__':
         total = 0.0
         correct = 0.0
         for x, y in train_loader:
-
             FC_NN.zero_grad()
             pred = FC_NN.forward(x)
-            loss = nnf.binary_cross_entropy_with_logits(pred, nnf.one_hot(y, n_classes).float())
+            loss = nnf.binary_cross_entropy(pred, nnf.one_hot(y, torch.tensor(n_classes)).float())
             total_loss += loss
-            total += labels.size(0)
+            total += y.size(0)
             correct += (pred.argmax(-1) == y).sum().item()
             loss.backward()
             optim.step()
 
-        print('epoch: %d | loss: %.3f | acc: %.5f' %((i+1), total_loss, correct/total*100))
+        train_acc.append(tracc)
+        test_acc.append(teacc)
+        print('epoch: %d | loss: %.3f | acc: %.5f' %((i+1), total_loss, correct/total*100), end='\r')
