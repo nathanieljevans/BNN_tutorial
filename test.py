@@ -24,15 +24,23 @@ from torch.utils import data
 
 from sklearn.datasets import load_iris
 from matplotlib import pyplot as plt
+import numpy as np
 
 if __name__ == '__main__':
 
+    torch.manual_seed(0)
+    np.random.seed(0)
+
     X,Y = load_iris(return_X_y=True)
+    sel = np.arange(len(Y))
+    np.random.shuffle(sel)
+    X = X[sel]
+    Y = Y[sel]
 
     for i,x in enumerate(X):
         torch.save(torch.tensor(x).float(), './data/%d.pt' %i)
 
-    n_classes=len(set(Y)) # torch.tensor(len(set(Y))).int()
+    n_classes=len(set(Y))
     print(f'Number of classes: {n_classes}')
 
     partition = {'train':[str(x) for x in range(0,100)],
@@ -114,13 +122,14 @@ if __name__ == '__main__':
 
     FC_NN = FCN()
 
-    LEARNING_WEIGHT = 1e-2
+    LEARNING_WEIGHT = 1e-3
 
-    optim = torch.optim.AdamW(FC_NN.parameters(recurse=True), lr=LEARNING_WEIGHT, weight_decay=0.001, amsgrad=True)#SGD(FC_NN.parameters(recurse=True), lr=0.1, momentum=0.95)
-    epochs = 200
+    optim = torch.optim.AdamW(FC_NN.parameters(recurse=True), lr=LEARNING_WEIGHT, weight_decay=0.01, amsgrad=True)#SGD(FC_NN.parameters(recurse=True), lr=0.1, momentum=0.95)
+    epochs = 1000
 
+    nx = 1
     # gamma = decaying factor
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, milestones=[50,100,125,150,170,180,190], gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, milestones=range(100,1000,100), gamma=0.1)
 
     train_acc = []
     test_acc = []
@@ -138,9 +147,12 @@ if __name__ == '__main__':
             total += y.size(0)
             correct += (pred.argmax(-1) == y).sum().item()
             loss.backward()
-            optim.step()
             tracc = correct/total*100
+            optim.step()
+        scheduler.step()
 
+        total = 0.0
+        correct = 0.0
         for x, y in val_loader:
             pred = FC_NN.forward(x)
             total += y.size(0)
@@ -149,7 +161,7 @@ if __name__ == '__main__':
 
         train_acc.append(tracc)
         test_acc.append(teacc)
-        print('epoch: %d | learning rate: %f | loss: %.3f | acc: %.5f' %((i+1), get_lr(optim), total_loss, correct/total*100), end='\r')
+        print('epoch: %d | learning rate: %f | train loss: %.3f | train acc: %.5f' %((i+1), get_lr(optim), total_loss, tracc), end='\r')
 
     plt.figure()
     plt.plot(train_acc, 'r-', label='train acc')
