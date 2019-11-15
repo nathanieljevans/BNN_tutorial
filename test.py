@@ -77,8 +77,12 @@ if __name__ == '__main__':
     training_set = Dataset(partition['train'], labels)
     train_loader = data.DataLoader(training_set, **params)
 
+    params = {'batch_size': 25,
+              'shuffle': True,
+              'num_workers': 0}
+
     validation_set = Dataset(partition['val'], labels)
-    validation_generator = data.DataLoader(validation_set, **params)
+    val_loader = data.DataLoader(validation_set, **params)
 
     test_set = Dataset(partition['test'], labels)
     test_generator = data.DataLoader(test_set, **params)
@@ -104,12 +108,19 @@ if __name__ == '__main__':
         def forward(self, inp):
             return self.fc(inp)
 
+    def get_lr(optimizer):
+        for param_group in optimizer.param_groups:
+            return param_group['lr']
+
     FC_NN = FCN()
 
-    LEARNING_WEIGHT = 1e-3
+    LEARNING_WEIGHT = 1e-2
 
     optim = torch.optim.AdamW(FC_NN.parameters(recurse=True), lr=LEARNING_WEIGHT, weight_decay=0.001, amsgrad=True)#SGD(FC_NN.parameters(recurse=True), lr=0.1, momentum=0.95)
-    epochs = 500
+    epochs = 200
+
+    # gamma = decaying factor
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optim, milestones=[50,100,125,150,170,180,190], gamma=0.1)
 
     train_acc = []
     test_acc = []
@@ -128,7 +139,20 @@ if __name__ == '__main__':
             correct += (pred.argmax(-1) == y).sum().item()
             loss.backward()
             optim.step()
+            tracc = correct/total*100
+
+        for x, y in val_loader:
+            pred = FC_NN.forward(x)
+            total += y.size(0)
+            correct += (pred.argmax(-1) == y).sum().item()
+            teacc = correct/total*100
 
         train_acc.append(tracc)
         test_acc.append(teacc)
-        print('epoch: %d | loss: %.3f | acc: %.5f' %((i+1), total_loss, correct/total*100), end='\r')
+        print('epoch: %d | learning rate: %f | loss: %.3f | acc: %.5f' %((i+1), get_lr(optim), total_loss, correct/total*100), end='\r')
+
+    plt.figure()
+    plt.plot(train_acc, 'r-', label='train acc')
+    plt.plot(test_acc, 'b-', label='val acc')
+    plt.legend()
+    plt.show()
